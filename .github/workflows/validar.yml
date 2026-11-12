@@ -1,0 +1,54 @@
+name: Validar firmware e interfaz
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: c3/aplicacion/package-lock.json
+      - name: Pruebas de firmware portable y Debian
+        run: python3 verificar.py
+      - name: Instalar dependencias web
+        working-directory: c3/aplicacion
+        run: npm ci --no-audit --no-fund
+      - name: Pruebas y compilacion de interfaz
+        working-directory: c3/aplicacion
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          npm test
+          npm run build
+          npm run typecheck
+      - name: Comprobar preparacion para SPIFFS
+        run: python3 c3/firmware/tools/prepare_web.py c3/aplicacion/out
+
+  firmware:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar C3 con ESP-IDF 6.1 sin credenciales
+        shell: bash
+        env:
+          IDF_COMPONENT_MANAGER: '0'
+        run: |
+          . /opt/esp/idf/export.sh
+          cp c3/firmware/sdkconfig.defaults.example c3/firmware/sdkconfig.defaults
+          idf.py -C c3/firmware -D IDF_TARGET=esp32c3 reconfigure build

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22)
+set(PROJECT_VER "4.1.3")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(esp32c3_marlin_wifi)
+spiffs_create_partition_image(web "${CMAKE_CURRENT_SOURCE_DIR}/web" FLASH_IN_PROJECT)

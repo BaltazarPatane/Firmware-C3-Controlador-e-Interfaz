@@ -1,0 +1,31 @@
+menu "Puente Marlin WiFi"
+config MARLIN_RX_GPIO
+    int "GPIO RX ESP (conservar el cableado actual)"
+    range 0 21
+    default 4
+config MARLIN_TX_GPIO
+    int "GPIO TX ESP (conservar el cableado actual)"
+    range 0 21
+    default 5
+config MARLIN_BAUD
+    int "Baudios UART Mega"
+    default 115200
+config BRIDGE_ROUTER_SSID
+    string "SSID de 2.4 GHz del Technicolor"
+    default "DC9B65"
+config BRIDGE_ROUTER_PASSWORD
+    string "Clave WiFi del Technicolor"
+    default ""
+config BRIDGE_STATIC_IP
+    string "IPv4 fija C3, fuera del DHCP"
+    default "192.168.0.254"
+config BRIDGE_NETMASK
+    string "Mascara IPv4"
+    default "255.255.255.0"
+config BRIDGE_GATEWAY
+    string "IPv4 del router"
+    default "192.168.0.1"
+config BRIDGE_PAIR_GROUP
+    string "Grupo compartido con Debian"
+    default "ARS_CAJA1"
+endmenu

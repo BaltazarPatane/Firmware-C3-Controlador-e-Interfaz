@@ -1,0 +1,7 @@
+[Unit]
+Description=Comprobar Ethernet de la caja en %I
+After=networking.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/caja-ars/ethernet_retry.py %I

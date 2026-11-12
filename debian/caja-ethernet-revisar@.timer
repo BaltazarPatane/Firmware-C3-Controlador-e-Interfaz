@@ -1,0 +1,11 @@
+[Unit]
+Description=Recuperar Ethernet de la caja en %I
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=30
+AccuracySec=5
+Unit=caja-ethernet-revisar@%i.service
+
+[Install]
+WantedBy=timers.target

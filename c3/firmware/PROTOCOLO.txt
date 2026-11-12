@@ -1,0 +1,94 @@
+PUENTE MARLIN — PROTOCOLO 3 / FIRMWARE 3.0.0
+
+Red: AP propio 192.168.4.1, canal 1, WPA2. Tres estaciones de control y S3.
+network_policy.hpp concentra la admisión por MAC/AID y dos sesiones por celular.
+La MAC se obtiene de la asociación WiFi y de la IP del socket mediante ESP-IDF;
+no se acepta que el navegador declare su propio dispositivo o rol.
+No hay modo STA/router, acceso a Internet ni proxy de cámara en esta versión.
+
+WebSocket /ws, texto JSON hasta 1024 bytes, sin fragmentación. Origin, si existe,
+debe corresponder al mismo Host por HTTP. Sin token de control adicional: cada
+miembro admitido en esta red WiFi puede controlar la máquina.
+
+Cliente -> C3:
+  {"type":"hello","protocol":3}
+  {"type":"ping"}                           -> {"type":"pong"}
+  {"type":"command","id":1,"text":"M119"}
+  {"type":"batch","id":2,"texts":["G91","G0 X1","G90","M114"]}
+  {"type":"control","id":6,"action":"pause"}
+  {"type":"control","id":7,"action":"resume"}
+  {"type":"discard"}
+
+IDs enteros positivos uint32, crecientes dentro de cada sesión. Los lotes usan
+IDs consecutivos desde id y contienen 1 a 8 líneas. Máximo 78 bytes ASCII por
+comando, una línea G/M/T, sin numeración, checksum ni comentarios.
+job:true, job, jobAction y protocolos anteriores se rechazan; se cierra solo esa
+sesión. La UI no carga programas. M110 manual está bloqueado para no alterar
+la numeración de un host externo. Emergencias se envían individualmente.
+
+C3 -> cliente:
+  accepted: el comando entró a la cola, no significa movimiento terminado.
+  written: bytes enviados a UART. ack: confirmación de Marlin correlacionada.
+  rejected/discarded: comando rechazado/descartado y motivo en text.
+  controlAccepted/controlRejected: recepción del intento de pausa/reanudación.
+  status: estado compartido; su pausePhase informa la evolución real del control.
+  rx/tx/historyRx/historyTx/notice: consola común. ACK y recibos llevan id y son
+  privados para su sesión; RX/TX se duplican para todos los observadores.
+
+Campos status, además de type:
+  protocol=3, version=3.0.0, machineControls=true, fileJobs=false
+  clientId, bootId, generation, ready, stage, reason, emergency, paused
+  pausePhase: running / pause-requested / waiting-for-motion-finish / paused / resuming
+  pending, movements, clients (sesiones), position (reporte real M114)
+  sdPrinting, sdPaused, sdDone, sdTotal
+  phones (estaciones de control), phoneLimit=3, cameraReserved=true
+  cameraAssociated, cameraUrl=http://192.168.4.2/capture
+  droppedConsoleLines (pérdidas de telemetría de esta sesión bajo saturación)
+
+La asociación de S3 no implica imagen válida. La aplicación verifica JPEG y ETag
+directamente con ella. Ver CONTRATO_S3.txt en la raíz del paquete.
+
+Concurrencia y desconexiones
+- Una sola tarea es dueña de Core y UART. Drena RX, procesa solicitudes acotadas
+  y despacha comandos con confirmación. Estado inicial sin navegador.
+- Tarea de red separada, dos trabajadores para servir archivos y envíos WebSocket
+  no bloqueantes. Outbox conserva el último estado por sesión y reserva ACK
+  separadamente del tráfico de consola. Colas y tamaños están acotados.
+- Un socket lento o inválido se cierra. Su cierre usa el ID de sesión en la tarea
+  HTTP para no cerrar un socket nuevo que haya reutilizado el descriptor anterior.
+- Cada página envía ping cada 2 s. Ante pérdida no reenvía comandos inciertos.
+  El firmware invalida sesiones inactivas o con estación desconectada.
+- Desconectar la app no reinicia Mega. Una pausa global sobrevive a su solicitante.
+- En M112 la parada se enclava. Solo un arranque real observado del Mega y nueva
+  identificación con ACK pueden levantarla; no se transmite M999 automático.
+- La cola de un host USB externo la ordena Marlin. La C3 no puede hacer atómicos
+  sus lotes respecto de los comandos que ingresan por otro puerto serie.
+- El Core conserva lógica interna anterior de líneas numeradas con pruebas de
+  regresión, pero el protocolo público 3 no habilita archivos ni ese productor.
+
+Compilar (no hace falta para cargar el binario entregado)
+1) Instalar Node.js 22 o compatible y ESP-IDF v6.1 para ESP32-C3 desde Espressif.
+2) Desde la raíz del paquete:
+     cd aplicacion
+     npm ci
+     npm test
+     npm run build
+     npm run typecheck
+     cd ..
+     python3 firmware/tools/prepare_web.py aplicacion/out
+3) Activar el entorno ESP-IDF v6.1 mediante su export.sh. Luego:
+     idf.py -C firmware build
+   sdkconfig incluido fija target esp32c3, flash 4MB, RX4/TX5, baud115200.
+   La web se empaqueta en SPIFFS, offset 0x200000. Firmware en 0x10000,
+   particiones en 0x8000 y bootloader en 0. No modificar offsets a mano.
+4) Se puede cargar directamente con idf.py -C firmware -p PUERTO flash.
+   Si se genera otra imagen fusionada, actualizar el SHA256 de configuracion.json
+   y SHA256SUMS.txt antes de usar binarios/cargar.py. No etiquetar otra compilación
+   como el binario validado incluido. Las pruebas se explican en pruebas/LEEME.txt.
+
+Fuentes oficiales consultadas y código SDK revisado:
+https://github.com/espressif/esp-idf/tree/v6.1
+https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32c3/
+components/esp_wifi/include/esp_wifi_ap_get_sta_list.h
+components/esp_http_server/src/httpd_main.c
+components/esp_netif/lwip/esp_netif_lwip.c

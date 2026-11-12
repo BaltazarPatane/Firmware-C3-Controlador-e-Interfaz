@@ -1,0 +1,15 @@
+[Unit]
+Description=Reintento DHCP de ifupdown para %I
+After=networking.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/sbin/ifdown --force %I
+ExecStart=/sbin/ifup --force %I
+ExecStop=-/sbin/ifdown --force %I
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=90
+TimeoutStopSec=20

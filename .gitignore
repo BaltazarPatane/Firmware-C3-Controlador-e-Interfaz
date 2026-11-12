@@ -1,0 +1,14 @@
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+**/node_modules/
+**/.next/
+**/out/
+**/__pycache__/
+**/*.pyc
+**/*.tsbuildinfo
+
+# Configuracion generada localmente; puede contener la clave WiFi.
+**/sdkconfig.defaults
+**/sdkconfig.ci
+**/main.cpp.bak_*

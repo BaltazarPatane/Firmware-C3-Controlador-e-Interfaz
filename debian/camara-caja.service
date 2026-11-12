@@ -1,0 +1,28 @@
+[Unit]
+Description=Camara local de la caja, video directo Debian a celulares
+After=local-fs.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=trixie
+SupplementaryGroups=video
+ExecStart=/usr/bin/python3 /opt/caja-camara/camara_http.py --config /etc/caja-ars/camara-http.json
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=always
+RestartSec=3
+WatchdogSec=20
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+Nice=5
+UMask=0077
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target
