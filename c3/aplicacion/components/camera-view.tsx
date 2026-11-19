@@ -19,8 +19,6 @@ type Status = 'connecting' | 'live' | 'stale' | 'offline'
 export function CameraView() {
   const [cameraHost, setCameraHost] = useState<string | null>(null)
   const [visible, setVisible] = useState(true)
-  // Fill the tall camera viewport without distortion. This necessarily crops the sides.
-  // User can switch to Contain to see the whole 4:3 frame.
   const [fillFrame, setFillFrame] = useState(true)
   const [mode, setMode] = useState<Mode>('stream')
   const [status, setStatus] = useState<Status>('connecting')
@@ -279,21 +277,24 @@ export function CameraView() {
   }
 
   const imageIsLive = status === 'live'
+  // The camera is mounted sideways. Swap the box dimensions before rotating so
+  // cover and contain both use the actual portrait viewport, at any aspect ratio.
+  const imageClass = `absolute left-1/2 top-1/2 h-[100cqw] w-[100cqh] max-w-none -translate-x-1/2 -translate-y-1/2 rotate-90 ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`
   return (
-    <section aria-label="Cámara en vivo" className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card">
+    <section aria-label="Cámara en vivo" className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card [container-type:size]">
       {visible && mode === 'stream' && (
         <img
           key={attempt}
           ref={streamImage}
           alt="Video de la cámara"
-          className={`absolute inset-0 h-full w-full ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`}
+          className={imageClass}
         />
       )}
       {visible && mode === 'snapshots' && snapshotSrc && (
         <img
           src={snapshotSrc}
           alt="Imagen actual de la cámara"
-          className={`absolute inset-0 h-full w-full ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`}
+          className={imageClass}
         />
       )}
       {!imageIsLive && (

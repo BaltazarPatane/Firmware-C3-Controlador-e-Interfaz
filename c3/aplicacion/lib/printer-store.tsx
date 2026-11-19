@@ -32,6 +32,7 @@ import {
   uid,
   type Axis,
   type ConsoleEntry,
+  type ConsoleMode,
   type MachineState,
   type MessageDirection,
   type PauseState,
@@ -41,8 +42,10 @@ import {
   type JobPrinterTransport,
 } from './printer-types'
 
-// Preserve at least the latest 200 entries (spec). We keep a bit more headroom.
-const MAX_ENTRIES = 300
+import { normalConsoleEntry } from './console-log-policy'
+
+const MAX_NORMAL_ENTRIES = 500
+const MAX_DIAGNOSTIC_ENTRIES = 1500
 
 type HomeTarget = Axis | 'all'
 
@@ -72,6 +75,9 @@ interface PrinterStoreValue {
   canOperate: boolean
   busyAction: string | null
   console: ConsoleEntry[]
+  diagnosticConsole: ConsoleEntry[]
+  consoleMode: ConsoleMode
+  setConsoleMode: (mode: ConsoleMode) => void
   commandHistory: string[]
   // Controlled-pause state, driven only by real Marlin acknowledgements.
   pauseState: PauseState
@@ -117,6 +123,19 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
   const [emergencyStopActive, setEmergencyStopActive] = useState(false)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([])
+  const [diagnosticConsole, setDiagnosticConsole] = useState<ConsoleEntry[]>([])
+  const [consoleMode, setConsoleModeState] = useState<ConsoleMode>('normal')
+  const consoleModeRef = useRef<ConsoleMode>('normal')
+  const diagnosticBufferRef = useRef<ConsoleEntry[]>([])
+  const diagnosticFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const setConsoleMode = useCallback((mode: ConsoleMode) => {
+    consoleModeRef.current = mode
+    setConsoleModeState(mode)
+    if (mode === 'diagnostic') setDiagnosticConsole([...diagnosticBufferRef.current])
+  }, [])
+  useEffect(() => () => {
+    if (diagnosticFlushRef.current !== null) clearTimeout(diagnosticFlushRef.current)
+  }, [])
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [pauseState, setPauseState] = useState<PauseState>('running')
   const [pendingMovementCount, setPendingMovementCount] = useState(0)
@@ -151,17 +170,27 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
   sdPrintRef.current = sdPrint
   const canOperate = connection === 'connected' && !emergencyStopActive && pauseState === 'running' && !sdPrint.active && !sdPrint.paused
 
+  const recordConsoleEntry = useCallback((entry: ConsoleEntry) => {
+    const buffer = diagnosticBufferRef.current
+    buffer.push(entry)
+    if (buffer.length > MAX_DIAGNOSTIC_ENTRIES) buffer.splice(0, buffer.length - MAX_DIAGNOSTIC_ENTRIES)
+    if (consoleModeRef.current === 'diagnostic' && diagnosticFlushRef.current === null) {
+      diagnosticFlushRef.current = setTimeout(() => {
+        diagnosticFlushRef.current = null
+        setDiagnosticConsole([...diagnosticBufferRef.current])
+      }, 150)
+    }
+    if (normalConsoleEntry(entry)) {
+      setConsoleEntries(prev => [...prev.slice(-(MAX_NORMAL_ENTRIES - 1)), entry])
+    }
+  }, [])
+
   const appendEntry = useCallback(
     (direction: MessageDirection, content: string) => {
-      setConsoleEntries((prev) => {
-        const next = [
-          ...prev,
-          { id: uid(), timestamp: formatTimestamp(), direction, content },
-        ]
-        return next.length > MAX_ENTRIES ? next.slice(-MAX_ENTRIES) : next
-      })
+      recordConsoleEntry({ id: uid(), timestamp: formatTimestamp(), direction, content,
+        visibleInNormal: true })
     },
-    [],
+    [recordConsoleEntry],
   )
 
   // Subscribe to transport messages once. Only real messages mutate state.
@@ -188,10 +217,7 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
             if (parsed) setSdDetails(current => ({ ...current, ...parsed }))
           }
           if (message.entry.direction === 'RX' && message.entry.content.trim() === 'start') resetSeen.current = true
-          setConsoleEntries((prev) => {
-            const next = [...prev, message.entry]
-            return next.length > MAX_ENTRIES ? next.slice(-MAX_ENTRIES) : next
-          })
+          recordConsoleEntry(message.entry)
           break
         case 'position':
           setPosition(message.position)
@@ -254,7 +280,7 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
       }
     })
     return unsubscribe
-  }, [transport, mode])
+  }, [transport, mode, recordConsoleEntry])
 
   // Once every pre-pause movement has been acknowledged but M400 has not yet
   // returned its `ok`, we are physically finishing motion — not paused yet.
@@ -277,7 +303,7 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
   const started = useRef(false)
   useEffect(() => {
     transport.setOnReady(() => {
-      if (mode === 'usb') void transport.sendCommand('M114').catch(() => {
+      if (mode === 'usb') void transport.sendCommand('M114', { consoleOrigin: 'internal' }).catch(() => {
         // If the socket dropped between open and send, reconnect handles it.
       })
     })
@@ -540,14 +566,18 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
     try {
       // M27 C reports the current SD filename; M31 reports the actual elapsed timer.
       // No G-code files are transferred to the C3 from the application.
-      await transport.sendCommand('M27 C')
-      await transport.sendCommand('M31')
+      await transport.sendCommand('M27 C', { consoleOrigin: 'internal' })
+      await transport.sendCommand('M31', { consoleOrigin: 'internal' })
     } catch {
       // A lost connection is handled by the shared transport; never fabricate values.
     }
   }, [mode, transport])
 
-  const clearConsole = useCallback(() => setConsoleEntries([]), [])
+  const clearConsole = useCallback(() => {
+    diagnosticBufferRef.current = []
+    setDiagnosticConsole([])
+    setConsoleEntries([])
+  }, [])
 
   const value = useMemo<PrinterStoreValue>(
     () => ({
@@ -566,6 +596,7 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
       canOperate,
       busyAction,
       console: consoleEntries,
+      diagnosticConsole, consoleMode, setConsoleMode,
       commandHistory,
       pauseState,
       pendingMovementCount,
@@ -592,6 +623,7 @@ export function PrinterProvider({ children, mode = 'wifi' }: { children: React.R
       canOperate,
       busyAction,
       consoleEntries,
+      diagnosticConsole, consoleMode, setConsoleMode,
       commandHistory,
       pauseState,
       pendingMovementCount,

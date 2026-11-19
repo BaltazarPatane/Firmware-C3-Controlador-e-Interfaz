@@ -245,3 +245,36 @@ test('console loss under saturation is visible and is not a fabricated command f
   assert.equal(messages.filter(m => m.kind === 'connection').at(-1).state, 'connected')
   await transport.disconnect()
 })
+
+test('console modes retain the full WiFi trace and keep explicit queries, startup and warnings in Normal', async () => {
+  const { transport, socket, messages } = await rig()
+  try {
+    const show = (type: string, text: string, consoleNormal: boolean) => {
+      socket.rx({ type, text, consoleNormal })
+      return messages.filter(m => m.kind === 'console').at(-1).entry
+    }
+    assert.equal(show('tx', 'M114', false).visibleInNormal, false)
+    assert.equal(show('rx', 'X:-99999 Y:12 Z:-3', false).visibleInNormal, false)
+    assert.deepEqual(messages.filter(m => m.kind === 'position').at(-1).position, { x: -99999, y: 12, z: -3 })
+    assert.equal(show('rx', 'ok', false).visibleInNormal, false)
+    assert.equal(show('tx', 'M114', true).visibleInNormal, true)
+    assert.equal(show('rx', 'X:-99999 Y:12 Z:-3', true).visibleInNormal, true)
+    assert.equal(show('rx', 'ok', true).visibleInNormal, true)
+    assert.equal(show('rx', 'echo:busy: processing', true).visibleInNormal, false)
+    assert.equal(show('historyRx', 'Warning: sensor', false).visibleInNormal, true)
+    assert.equal(show('historyRx', 'start', false).visibleInNormal, true)
+    const previous = show('historyRx', 'Not SD printing', false)
+    assert.equal(previous.content, '[Anterior] Not SD printing')
+    assert.equal(previous.visibleInNormal, false)
+    const automatic = transport.sendCommand('M27 C', { consoleOrigin: 'internal' })
+    const query = socket.sent.at(-1)!
+    assert.equal('consoleSync' in query && query.consoleSync, true)
+    socket.rx({ type: 'accepted', id: query.id }); await automatic
+    const manual = transport.sendCommand('M27 C')
+    const command = socket.sent.at(-1)!
+    assert.equal('consoleSync' in command, false)
+    socket.rx({ type: 'accepted', id: command.id }); await manual
+  } finally {
+    await transport.disconnect()
+  }
+})

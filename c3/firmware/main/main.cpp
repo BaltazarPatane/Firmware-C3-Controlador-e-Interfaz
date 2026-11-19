@@ -235,7 +235,7 @@ static void serial_task(void *) {
       } else if (!engine.attached(r.session))
         continue;
       else if (r.op == Op::Command)
-        engine.accept(r.session, r.id, r.text[0], now);
+        engine.accept(r.session, r.id, r.text[0], now, false, r.console_sync);
       else if (r.op == Op::Batch) {
         std::vector<std::string> batch;
         for (size_t j = 0; j < r.count; ++j)

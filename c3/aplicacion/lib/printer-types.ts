@@ -36,6 +36,9 @@ export interface Position {
   z: number | null
 }
 
+export type ConsoleMode = 'normal' | 'diagnostic'
+export type ConsoleOrigin = 'startup' | 'operator' | 'internal' | 'file'
+
 export type MessageDirection = 'TX' | 'RX' | 'SYS' | 'ERR'
 
 /**
@@ -90,6 +93,7 @@ export type JobTag =
 
 /** Optional metadata passed alongside a transmitted command. */
 export interface SendMeta {
+  consoleOrigin?: ConsoleOrigin
   pauseMarker?: PauseMarker
   /** Marks the command as part of a numbered file job (for correlation). */
   jobTag?: JobTag
@@ -204,6 +208,7 @@ export interface ConsoleEntry {
   timestamp: string
   direction: MessageDirection
   content: string
+  visibleInNormal?: boolean
 }
 
 /**
