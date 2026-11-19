@@ -10,6 +10,7 @@ struct Request {
   Op op{};
   uint32_t session = 0, id = 0;
   uint8_t count = 0;
+  bool console_sync = false;
   char text[8][MAX_TEXT + 1]{};
   char action[8]{};
 };
@@ -54,6 +55,7 @@ inline bool parseRequest(cJSON *o, Request &r) {
     return true;
   }
   r.op = type == "command" ? Op::Command : Op::Batch;
+  r.console_sync = r.op == Op::Command && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(o, "consoleSync"));
   const auto *texts = cJSON_GetObjectItemCaseSensitive(o, "texts");
   const int count = r.op == Op::Command ? 1 : cJSON_GetArraySize(texts);
   if (count < 1 || count > 8 ||

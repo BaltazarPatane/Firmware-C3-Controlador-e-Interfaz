@@ -72,6 +72,29 @@ int main() {
     r.core.attach(11);
     assert(r.count("rx", 0, 11) >= 1 && r.count("historyRx", 0, 11) >= 1);
   });
+  test("console distinguishes manual and automatic replies, including history", [] {
+    Rig r;
+    r.ready();
+    r.send(1, "M27");
+    r.rx("Not SD printing");
+    r.rx("ok");
+    r.core.accept(10, 2, "M27", ++r.now, false, true);
+    r.rx("Not SD printing");
+    r.rx("ok");
+    r.rx("X:0 Y:0 Z:0"); // unsolicited M154 report
+    r.core.attach(11);
+    std::vector<bool> live, history;
+    for (const auto &event : r.events) {
+      if (event.type == "tx" || (event.type == "rx" && !event.session))
+        live.push_back(event.console_normal);
+      if (event.type == "historyTx" || event.type == "historyRx")
+        history.push_back(event.console_normal);
+    }
+    assert((live == std::vector<bool>{true, true, true, false, false, false, false}));
+    assert(history.size() >= live.size());
+    assert(std::equal(live.rbegin(), live.rend(), history.rbegin()));
+    assert(r.count("ack", 1, 10) == 1 && r.count("ack", 2, 10) == 1);
+  });
   test("only one ordinary command is in flight", [] {
     Rig r;
     r.ready();

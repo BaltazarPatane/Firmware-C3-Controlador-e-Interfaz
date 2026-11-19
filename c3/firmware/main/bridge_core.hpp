@@ -22,6 +22,7 @@ struct Event {
   std::string text = "";
   int line = -1;
   uint32_t origin = 0;
+  bool console_normal = false;
 };
 struct Command {
   enum class Control { None, PauseDrain, PauseHold, SdStop, SdDrain, Resume };
@@ -29,6 +30,7 @@ struct Command {
   std::string text, wire;
   int line = -1, retries = 0;
   bool internal = false, urgent = false, job = false;
+  bool console_sync = false; // Presentation only; never affects dispatch or ACKs.
   uint64_t batch = 0;
   bool batch_end = false;
   Control control = Control::None;
@@ -266,12 +268,12 @@ public:
     status();
   }
   void accept(uint32_t session, uint32_t id, const std::string &text,
-              uint64_t now, bool job = false) {
-    acceptBatch(session, id, {text}, now, job);
+              uint64_t now, bool job = false, bool console_sync = false) {
+    acceptBatch(session, id, {text}, now, job, console_sync);
   }
   void acceptBatch(uint32_t session, uint32_t first,
                    const std::vector<std::string> &texts, uint64_t now,
-                   bool job = false) {
+                   bool job = false, bool console_sync = false) {
     Command rejected;
     rejected.session = session;
     rejected.id = first;
@@ -323,6 +325,7 @@ public:
       c.id = first + i;
       c.text = texts[i];
       c.job = job;
+      c.console_sync = console_sync && (code(c.text, "M27") || code(c.text, "M31") || code(c.text, "M114"));
       c.urgent = urgent;
       if (texts.size() > 1) {
         c.batch = (static_cast<uint64_t>(session) << 32) | first;
@@ -396,7 +399,10 @@ public:
     if (a == std::string::npos)
       return;
     const std::string s = raw.substr(a, b - a + 1);
-    remember({"rx", 0, 0, s});
+    // Mark the reply before the real ACK handler advances the UART queue.
+    const bool startup = stage_ == Stage::Boot || stage_ == Stage::Probe;
+    remember({"rx", 0, 0, s, -1, 0,
+              startup || (!wire_.empty() && console_normal(wire_.front()))});
     if (s == "start") {
       discard(0);
       for (const auto &c : wire_)
@@ -623,6 +629,10 @@ private:
         return false;
     return true;
   }
+  bool console_normal(const Command &c) const {
+    return !c.console_sync && !c.job &&
+           (!c.internal || c.control != Command::Control::None || stage_ == Stage::Probe);
+  }
   void remember(Event e) {
     emit_(e);
     if (e.text.size() > 384) {
@@ -679,7 +689,7 @@ private:
              pause_stage_ == PauseStage::Running)
       pause_stage_ = PauseStage::Requested;
     event("written", c, c.wire);
-    remember({"tx", 0, 0, c.wire, c.line, c.session});
+    remember({"tx", 0, 0, c.wire, c.line, c.session, console_normal(c)});
   }
   void pump(uint64_t now) {
     if (!ready() || !wire_.empty() || waiting_.empty())

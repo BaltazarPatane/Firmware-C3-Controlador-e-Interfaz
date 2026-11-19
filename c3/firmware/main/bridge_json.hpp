@@ -13,6 +13,9 @@ inline cJSON *makeMessage(const Core &core, const Event &event, uint32_t client,
   cJSON_AddStringToObject(json, "type", event.type.c_str());
   if (event.id)
     cJSON_AddNumberToObject(json, "id", event.id);
+  if (event.type == "tx" || event.type == "rx" ||
+      event.type == "historyTx" || event.type == "historyRx")
+    cJSON_AddBoolToObject(json, "consoleNormal", event.console_normal);
   if (event.origin)
     cJSON_AddNumberToObject(json, "origin", event.origin);
   if (!event.text.empty())

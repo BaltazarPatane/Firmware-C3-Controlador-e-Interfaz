@@ -6,6 +6,8 @@ import {
   type PrinterMessage, type PrinterConnectionState,
 } from './printer-types'
 import { isMovementCommand, parsePositionReport } from './web-serial-printer-transport'
+import { visibleInNormalConsole } from './console-log-policy'
+import type { ConsoleOrigin } from './printer-types'
 import { WIFI_MAX_COMMAND_BYTES } from './printer-config'
 
 interface Pending {
@@ -54,8 +56,10 @@ export class WifiPrinterTransport implements JobPrinterTransport {
     return () => { this.listeners.delete(listener) }
   }
   private emit(message: PrinterMessage) { this.listeners.forEach((fn) => fn(message)) }
-  private log(direction: 'TX' | 'RX' | 'SYS' | 'ERR', content: string) {
-    this.emit({ kind: 'console', entry: { id: uid(), timestamp: formatTimestamp(), direction, content } })
+  private log(direction: 'TX' | 'RX' | 'SYS' | 'ERR', content: string, origin: ConsoleOrigin = 'operator', history = false) {
+    this.emit({ kind: 'console', entry: { id: uid(), timestamp: formatTimestamp(), direction,
+      content: history ? '[Anterior] ' + content : content,
+      visibleInNormal: visibleInNormalConsole(direction, content, origin) } })
   }
   private setState(state: PrinterConnectionState) {
     if (this.state === state) return
@@ -160,7 +164,10 @@ export class WifiPrinterTransport implements JobPrinterTransport {
         this.socket?.close()
       }, 7000)
       this.pending.set(id, pending); this.queue()
-      try { this.socket!.send(JSON.stringify({ type: 'command', id, text, job: false })) }
+      try {
+        this.socket!.send(JSON.stringify({ type: 'command', id, text, job: false,
+          ...(meta.consoleOrigin === 'internal' && { consoleSync: true }) }))
+      }
       catch { this.socket?.close(); this.reset('Fallo al enviar por WiFi') }
     })
   }
@@ -251,13 +258,15 @@ export class WifiPrinterTransport implements JobPrinterTransport {
       return
     }
     const text = typeof message.text === 'string' ? message.text : ''
+    // Older bridges omit consoleNormal. Keep their messages visible.
+    const origin = message.consoleNormal === false ? 'internal' : 'operator'
     if (type === 'tx' || type === 'historyTx' || type === 'historyRx' || type === 'notice') {
       this.log(type === 'tx' || type === 'historyTx' ? 'TX' : type === 'notice' ? 'SYS' : 'RX',
-        (type.startsWith('history') ? '[Anterior] ' : '') + text)
+        text, origin, type.startsWith('history'))
       return
     }
     if (type === 'rx') {
-      this.log('RX', text)
+      this.log('RX', text, origin)
       const position = parsePositionReport(text)
       if (position) this.emit({ kind: 'position', position })
       if (/^Error:/i.test(text)) this.emit({ kind: 'machineState', state: 'error' })
