@@ -1,0 +1,39 @@
+name: Preparar interfaz C3
+on:
+  push:
+    branches: ['verificar/consola-camara-20261119']
+permissions:
+  contents: write
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f65a927a0d2904c580e98033a48adc300813861e
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: c3/aplicacion/package-lock.json
+      - name: Verificar puente, historial y protocolo existentes
+        run: python3 verificar.py
+      - name: Compilar y probar la interfaz
+        working-directory: c3/aplicacion
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
+          npm run typecheck
+      - name: Preparar los archivos que sirve la C3
+        run: python3 c3/firmware/tools/prepare_web.py c3/aplicacion/out
+      - name: Guardar solo la web compilada en la rama de la interfaz
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A -- c3/firmware/web
+          git diff --cached --quiet || git commit -m 'Preparar la interfaz de consola y cámara para SPIFFS'
+          git push origin HEAD:refs/heads/consola-y-camara-vertical
