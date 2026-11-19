@@ -1,39 +1,42 @@
-name: Preparar interfaz C3
+name: Probar la consola y el giro en navegador
 on:
   push:
     branches: ['verificar/consola-camara-20261119']
 permissions:
-  contents: write
+  contents: read
 jobs:
-  web:
+  navegador:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: f65a927a0d2904c580e98033a48adc300813861e
+          ref: b750f17cc14a59e0ca41deedd439dbfe4ea11acc
+          path: interfaz
+          fetch-depth: 0
+      - name: Identificar recursos idénticos al descomprimir
+        working-directory: interfaz
+        run: |
+          python3 - <<'PY'
+          import gzip, json, pathlib, subprocess
+          base = 'b49c18392cd2adabdeb27534fef6c6740e66929d'
+          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=M',base,'HEAD','--','c3/firmware/web/']).decode().splitlines()
+          same = [p for p in paths if p.endswith('.gz') and gzip.decompress(pathlib.Path(p).read_bytes()) == gzip.decompress(subprocess.check_output(['git','show',base+':'+p]))]
+          print('C3_SAME_BYTES='+json.dumps(same))
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: c3/aplicacion/package-lock.json
-      - name: Verificar puente, historial y protocolo existentes
-        run: python3 verificar.py
-      - name: Compilar y probar la interfaz
-        working-directory: c3/aplicacion
-        env:
-          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Instalar herramientas de prueba en el directorio temporal
         run: |
-          npm ci --no-audit --no-fund
-          npm test
-          npm run build
-          npm run typecheck
-      - name: Preparar los archivos que sirve la C3
-        run: python3 c3/firmware/tools/prepare_web.py c3/aplicacion/out
-      - name: Guardar solo la web compilada en la rama de la interfaz
+          mkdir -p "$RUNNER_TEMP/c3qa"
+          cp .github/prueba-navegador.cjs "$RUNNER_TEMP/c3qa/"
+          cd "$RUNNER_TEMP/c3qa"
+          npm install --no-audit --no-fund playwright-core@1.56.1 pngjs@7.0.0 ws@8.18.3
+          ./node_modules/.bin/playwright-core install --with-deps webkit
+      - name: Probar la web que sirve SPIFFS con mensajes y video simulados
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A -- c3/firmware/web
-          git diff --cached --quiet || git commit -m 'Preparar la interfaz de consola y cámara para SPIFFS'
-          git push origin HEAD:refs/heads/consola-y-camara-vertical
+          export CHROME_BIN="$(command -v google-chrome)"
+          export WEB_ROOT="$GITHUB_WORKSPACE/interfaz/c3/firmware/web"
+          node "$RUNNER_TEMP/c3qa/prueba-navegador.cjs"
