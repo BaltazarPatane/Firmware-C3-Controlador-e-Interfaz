@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { VideoOff, RefreshCw } from 'lucide-react'
+import { VideoOff, RefreshCw, RotateCw } from 'lucide-react'
 import { MjpegParser } from '@/lib/mjpeg-parser'
 import { discoverCamera } from '@/lib/camera-discovery'
 import { CameraReceiver } from '@/lib/camera-receiver'
@@ -10,6 +10,7 @@ import { CameraReceiver } from '@/lib/camera-receiver'
 const STALE_MS = 3500
 const START_TIMEOUT_MS = 5500
 const STREAM_PROBE_INTERVAL_MS = 15000
+const ROTATION_KEY = 'ars-c3-camera-rotation'
 
 type Mode = 'stream' | 'snapshots'
 type Status = 'connecting' | 'live' | 'stale' | 'offline'
@@ -19,9 +20,8 @@ type Status = 'connecting' | 'live' | 'stale' | 'offline'
 export function CameraView() {
   const [cameraHost, setCameraHost] = useState<string | null>(null)
   const [visible, setVisible] = useState(true)
-  // Fill the tall camera viewport without distortion. This necessarily crops the sides.
-  // User can switch to Contain to see the whole 4:3 frame.
   const [fillFrame, setFillFrame] = useState(true)
+  const [rotation, setRotation] = useState(0)
   const [mode, setMode] = useState<Mode>('stream')
   const [status, setStatus] = useState<Status>('connecting')
   const [attempt, setAttempt] = useState(0)
@@ -32,6 +32,13 @@ export function CameraView() {
   const lastDecodedImage = useRef(0)
   const failedStarts = useRef(0)
   const streamWorked = useRef(false)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ROTATION_KEY)
+      if (saved === '90' || saved === '180' || saved === '270') setRotation(Number(saved))
+    } catch { /* Rotation still works when local storage is unavailable. */ }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -279,23 +286,25 @@ export function CameraView() {
   }
 
   const imageIsLive = status === 'live'
+  const rotateCamera = () => {
+    const next = (rotation + 90) % 360
+    setRotation(next)
+    try { localStorage.setItem(ROTATION_KEY, String(next)) } catch { /* Use this angle for this visit. */ }
+  }
+  // At a quarter turn, fit the source against the swapped viewport dimensions.
+  const imageSize = rotation % 180 === 0 ? 'h-full w-full' : 'h-[100cqw] w-[100cqh]'
+  const imageClass = `absolute left-1/2 top-1/2 max-w-none ${imageSize} ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`
+  const imageStyle = { transform: `translate(-50%, -50%) rotate(${rotation}deg)` }
   return (
     <section aria-label="Cámara en vivo" className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card">
-      {visible && mode === 'stream' && (
-        <img
-          key={attempt}
-          ref={streamImage}
-          alt="Video de la cámara"
-          className={`absolute inset-0 h-full w-full ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`}
-        />
-      )}
-      {visible && mode === 'snapshots' && snapshotSrc && (
-        <img
-          src={snapshotSrc}
-          alt="Imagen actual de la cámara"
-          className={`absolute inset-0 h-full w-full ${fillFrame ? 'object-cover' : 'object-contain'} ${imageIsLive ? 'opacity-100' : 'opacity-0'}`}
-        />
-      )}
+      <div className="pointer-events-none absolute inset-0 [container-type:size]">
+        {visible && mode === 'stream' && (
+          <img key={attempt} ref={streamImage} alt="Video de la cámara" className={imageClass} style={imageStyle} />
+        )}
+        {visible && mode === 'snapshots' && snapshotSrc && (
+          <img src={snapshotSrc} alt="Imagen actual de la cámara" className={imageClass} style={imageStyle} />
+        )}
+      </div>
       {!imageIsLive && (
         <div className="relative flex flex-col items-center gap-2 px-6 text-center">
           <VideoOff className="size-8 text-muted-foreground" aria-hidden="true" />
@@ -309,6 +318,11 @@ export function CameraView() {
       {imageIsLive && <span className="absolute left-3 top-3 rounded-full border border-border bg-background/80 px-2.5 py-1 text-[11px] font-medium">
         EN VIVO{measuredFps > 0 ? ` · ${measuredFps.toFixed(1)} FPS` : ''}
       </span>}
+      {imageIsLive && <button type="button" onClick={rotateCamera}
+        aria-label={`Girar 90° en sentido horario. Orientación actual ${rotation}°`}
+        className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/85 px-3 py-1.5 text-xs font-medium shadow-sm">
+        <RotateCw className="size-3.5" aria-hidden="true" /> Girar 90°
+      </button>}
       {imageIsLive && <button type="button" onClick={() => setFillFrame(value => !value)}
         aria-label={fillFrame ? 'Ver imagen completa sin recortes' : 'Ampliar imagen para llenar la pantalla'}
         className="absolute bottom-3 right-3 rounded-lg border border-border bg-background/85 px-3 py-1.5 text-xs font-medium shadow-sm">

@@ -11,7 +11,9 @@ import { EmergencyStop } from '@/components/emergency-stop'
 import { cn } from '@/lib/utils'
 
 export function ConsolaScreen() {
-  const { console: entries, clearConsole, connection, connectPrinter, mode, linkDetail } = usePrinter()
+  const { console: normalEntries, diagnosticConsole, consoleMode, setConsoleMode, clearConsole,
+    connection, connectPrinter, mode, linkDetail } = usePrinter()
+  const entries = consoleMode === 'normal' ? normalEntries : diagnosticConsole
   const [autoScroll, setAutoScroll] = useState(true)
 
   return (
@@ -22,6 +24,16 @@ export function ConsolaScreen() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
         <h2 className="mr-auto text-sm font-semibold">Consola</h2>
         <ConnectionStatus connection={connection} onConnect={() => { void connectPrinter() }} className="text-muted-foreground" />
+        <div className="flex rounded-lg border border-border bg-background/60 p-0.5" role="group" aria-label="Modo de consola">
+          {(['normal', 'diagnostic'] as const).map(value => (
+            <button key={value} type="button" aria-pressed={consoleMode === value}
+              onClick={() => setConsoleMode(value)}
+              className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                consoleMode === value ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>
+              {value === 'normal' ? 'Normal' : 'Diagnóstico'}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
